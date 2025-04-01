@@ -1,7 +1,6 @@
 package org.lelouchtwt;
 
 import java.io.BufferedReader;
-import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -9,44 +8,33 @@ import java.util.List;
 
 public class Main {
     public static void main(String[] args) {
-        ArrayList<String> map = new ArrayList<>();
-        List<String> words = new ArrayList<>();
-        int xSize = 0;
-        int ySize = 0;
-        try {
+        long startTime = System.currentTimeMillis();
+        String gridPath = "/Users/joaopedroantoniazitonello/Documents/testes/grid-25x25-88W-400L-225B.txt";
+        String wordsPath = "/Users/joaopedroantoniazitonello/Documents/lista_palavras.txt";
+        List<String> gridLines = readLinesFromFile(gridPath);
+        List<String> wordList = readLinesFromFile(wordsPath);
 
-            String path = "/Users/joaopedroantoniazitonello/Documents/testes/grid-11x11-20W-83L-38B.txt";
-            FileReader fr = new FileReader(path);
-            BufferedReader br = new BufferedReader(fr);
-            String line = br.readLine();
-            while (line != null){
-                map.add(line);
-                //System.out.println(line);
-                line = br.readLine();
-            }
-            xSize =map.getFirst().length();
-            ySize = map.size();
-            System.out.println(map.getFirst().length());
-            System.out.println(map.size());
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+        int xSize = gridLines.getFirst().length();
+        int ySize = gridLines.size();
 
-        CrosswordsFiller crossword = new CrosswordsFiller(xSize,ySize,map, words);
-        try {
+        CrosswordsSolver crossword = new CrosswordsSolver(xSize, ySize, new ArrayList<>(gridLines), wordList);
+        crossword.run();
 
-            String path = "/Users/joaopedroantoniazitonello/Documents/lista_palavras.txt";
-            FileReader fr = new FileReader(path);
-            BufferedReader br = new BufferedReader(fr);
-            String line = br.readLine();
-            while (line != null){
-                words.add(line);
-                //System.out.println(line);
-                line = br.readLine();
+        long stopTime = System.currentTimeMillis();
+        System.out.printf("Execution time: %d ms", stopTime - startTime);
+    }
+
+    private static List<String> readLinesFromFile(String path) {
+        List<String> lines = new ArrayList<>();
+        try (BufferedReader br = new BufferedReader(new FileReader(path))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                lines.add(line.trim());
             }
         } catch (IOException e) {
+            System.err.println("Erro ao ler arquivo: " + path);
             e.printStackTrace();
         }
-        System.out.println("aaa");
+        return lines;
     }
 }
