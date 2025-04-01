@@ -1,13 +1,13 @@
-package org.lelouchtwt;
+package org.lelouchtwt.crossword.model;
 
-public class Slot {
+public class WordSlot {
     private final int x;
     private final int y;
     private final int length;
     private final boolean horizontal;
     private String word;
 
-    public Slot(int x, int y, int length, boolean horizontal) {
+    public WordSlot(int x, int y, int length, boolean horizontal) {
         this.x = x;
         this.y = y;
         this.length = length;
@@ -20,4 +20,9 @@ public class Slot {
     public boolean isHorizontal() { return horizontal; }
     public String getWord() { return word; }
     public void setWord(String word) { this.word = word; }
+
+    @Override
+    public String toString() {
+        return String.format("(%d,%d,%d,%s)", x, y, length, horizontal ? "H" : "V");
+    }
 }

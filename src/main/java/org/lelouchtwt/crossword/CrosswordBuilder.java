@@ -1,54 +1,61 @@
-package org.lelouchtwt;
+package org.lelouchtwt.crossword;
+
+import org.lelouchtwt.crossword.model.WordSlot;
+import org.lelouchtwt.crossword.util.FileUtils;
+import org.lelouchtwt.crossword.util.ImageUtils;
 
 import java.util.*;
+import java.util.List;
 
-public class CrosswordsSolver {
+public class CrosswordBuilder {
+    private final boolean DEBUG = false;
     private final int xSize;
     private final int ySize;
     private final char[][] grid;
-    private final List<Slot> slots = new ArrayList<>();
+    private final List<WordSlot> slots = new ArrayList<>();
     private final List<String> dictionary;
-    private final Map<Slot, List<String>> domains = new HashMap<>();
+    private final Map<WordSlot, List<String>> domains = new HashMap<>();
     private final Set<String> usedWords = new HashSet<>();
-
-    private final Map<String, List<Slot>> positionToSlots = new HashMap<>();
-
-
+    private final Map<String, List<WordSlot>> positionToSlots = new HashMap<>();
     private int steps = 0;
 
-    public CrosswordsSolver(int xSize, int ySize, ArrayList<String> input, List<String> words) {
-        this.xSize = xSize;
-        this.ySize = ySize;
+    public CrosswordBuilder(List<String> input, List<String> words) {
+        this.ySize = input.size();
+        this.xSize = input.getFirst().length();
         this.grid = new char[ySize][xSize];
         this.dictionary = words;
         setGrid(input);
-        setSlots();
+        identifyWordSlots();
     }
 
-    public void run() {
+    public void build() {
+        long startTime = System.currentTimeMillis();
         initDomains();
         boolean success = backtrack(0);
         if (success) {
             System.out.println("Solução encontrada!");
             printGrid();
+            FileUtils.saveGridToFile("./crossword.txt", grid);
+            long stopTime = System.currentTimeMillis();
+            ImageUtils.saveGridAsImage("./crossword.jpg", grid, xSize, ySize, stopTime - startTime);
         } else {
             System.out.println("Nenhuma solução encontrada.");
         }
         System.out.println("Passos (recursão): " + steps);
     }
 
-    private void setGrid(ArrayList<String> input) {
+    private void setGrid(List<String> input) {
         for (int i = 0; i < ySize; i++) {
             grid[i] = input.get(i).toCharArray();
         }
     }
 
-    private void setSlots() {
+    private void identifyWordSlots() {
         setHorizontalSlots();
         setVerticalSlots();
     }
 
-    private void setHorizontalSlots(){
+    private void setHorizontalSlots() {
         for (int y = 0; y < ySize; y++) {
             int x = 0;
             while (x < xSize) {
@@ -60,7 +67,7 @@ public class CrosswordsSolver {
                 while (x < xSize && grid[y][x] != '.') x++;
                 int length = x - start;
                 if (length > 1) {
-                    Slot slot = new Slot(start, y, length, true);
+                    WordSlot slot = new WordSlot(start, y, length, true);
                     slots.add(slot);
                     registerSlotPositions(slot);
                 }
@@ -68,7 +75,7 @@ public class CrosswordsSolver {
         }
     }
 
-    private void setVerticalSlots(){
+    private void setVerticalSlots() {
         for (int x = 0; x < xSize; x++) {
             int y = 0;
             while (y < ySize) {
@@ -80,7 +87,7 @@ public class CrosswordsSolver {
                 while (y < ySize && grid[y][x] != '.') y++;
                 int length = y - start;
                 if (length > 1) {
-                    Slot slot = new Slot(x, start, length, false);
+                    WordSlot slot = new WordSlot(x, start, length, false);
                     slots.add(slot);
                     registerSlotPositions(slot);
                 }
@@ -88,66 +95,54 @@ public class CrosswordsSolver {
         }
     }
 
-    private void registerSlotPositions(Slot slot) {
+    private void registerSlotPositions(WordSlot slot) {
         for (int i = 0; i < slot.getLength(); i++) {
             int x = slot.isHorizontal() ? slot.getX() + i : slot.getX();
             int y = slot.isHorizontal() ? slot.getY() : slot.getY() + i;
             String key = y + "," + x;
-
             positionToSlots.computeIfAbsent(key, k -> new ArrayList<>()).add(slot);
         }
     }
 
-
     private void initDomains() {
-        for (Slot slot : slots) {
-            List<String> domain = new ArrayList<>();
-            for (String word : dictionary) {
-                if (word.length() == slot.getLength()) {
-                    domain.add(word.toUpperCase());
-                }
-            }
-            domains.put(slot, domain);
+        Map<Integer, List<String>> domainCache = new HashMap<>();
+        for (WordSlot slot : slots) {
+            int length = slot.getLength();
+            domainCache.computeIfAbsent(length, len ->
+                    dictionary.stream()
+                            .filter(word -> word.length() == len)
+                            .toList()
+            );
+            domains.put(slot, new ArrayList<>(domainCache.get(length)));
         }
-        // Ordenar os slots por tamanho do domínio (MRV)
         slots.sort(Comparator.comparingInt(s -> domains.get(s).size()));
-
     }
 
     private boolean backtrack(int index) {
         steps++;
         double progress = (index * 100.0) / slots.size();
-        System.out.printf("Progresso: %.1f%% (%d/%d slots preenchidos)\n", progress, index, slots.size());
+        System.out.printf("Progresso: %.1f%% (%d/%d slots preenchidos) %n", progress, index, slots.size());
 
         if (index == slots.size())
             return true;
 
-        Slot slot = slots.get(index);
-        System.out.println(slot.getLength());
+        WordSlot slot = slots.get(index);
         List<String> originalDomain = domains.get(slot);
 
         for (String word : originalDomain) {
-            if (!usedWords.contains(word) && canPlace(slot, word)) {
-                placeWord(slot, word);
+            if (!usedWords.contains(word) && isValidPlacement(slot, word)) {
+                if (DEBUG) System.out.printf("Tentando colocar '%s' no slot %s %n", word, slot);
+                assignWord(slot, word);
                 slot.setWord(word);
                 usedWords.add(word);
 
-                Map<Slot, List<String>> backup = new HashMap<>();
-                for (int i = index + 1; i < slots.size(); i++) {
-                    Slot futureSlot = slots.get(i);
-                    backup.put(futureSlot, new ArrayList<>(domains.get(futureSlot)));
-                }
+                Map<WordSlot, List<String>> modifiedDomains = new HashMap<>();
+                if (forwardCheck(index + 1, modifiedDomains) && backtrack(index + 1))
+                    return true;
 
-                if (forwardCheck(index + 1)) {
-                    if (backtrack(index + 1))
-                        return true;
-                }
-
-                for (int i = index + 1; i < slots.size(); i++) {
-                    domains.put(slots.get(i), backup.get(slots.get(i)));
-                }
-
-                removeWord(slot);
+                domains.putAll(modifiedDomains);
+                unassignWord(slot);
+                if (DEBUG) System.out.printf("Removendo '%s' do slot %s %n", word, slot);
                 slot.setWord(null);
                 usedWords.remove(word);
             }
@@ -155,29 +150,35 @@ public class CrosswordsSolver {
         return false;
     }
 
-
-    private boolean forwardCheck(int startIndex) {
+    private boolean forwardCheck(int startIndex, Map<WordSlot, List<String>> modifiedDomains) {
         for (int i = startIndex; i < slots.size(); i++) {
-            Slot slot = slots.get(i);
-            List<String> domain = domains.get(slot);
-            List<String> newDomain = new ArrayList<>();
+            WordSlot slot = slots.get(i);
+            List<String> currentDomain = domains.get(slot);
 
-            for (String word : domain) {
-                if (canPlace(slot, word)) {
-                    newDomain.add(word);
+            List<String> filtered = new ArrayList<>();
+            for (String word : currentDomain) {
+                if (isValidPlacement(slot, word)) {
+                    filtered.add(word);
                 }
             }
 
-            if (newDomain.isEmpty()) {
+            if (filtered.isEmpty()) {
+                if (DEBUG) System.out.printf("[FC] Slot %s ficou com domínio vazio! %n", slot);
                 return false;
+            } else if (filtered.size() < currentDomain.size()) {
+                if (DEBUG) System.out.printf("[FC] Slot %s: domínio reduzido de %d para %d %n", slot, currentDomain.size(), filtered.size());
+                modifiedDomains.put(slot, new ArrayList<>(currentDomain));
             }
 
-            domains.put(slot, newDomain);
+            domains.put(slot, filtered);
         }
+        slots.subList(startIndex, slots.size()).sort(
+                Comparator.comparingInt(s -> domains.get(s).size())
+        );
         return true;
     }
 
-    private boolean canPlace(Slot slot, String word) {
+    private boolean isValidPlacement(WordSlot slot, String word) {
         int x = slot.getX();
         int y = slot.getY();
         for (int i = 0; i < slot.getLength(); i++) {
@@ -188,7 +189,7 @@ public class CrosswordsSolver {
         return true;
     }
 
-    private void placeWord(Slot slot, String word) {
+    private void assignWord(WordSlot slot, String word) {
         int x = slot.getX();
         int y = slot.getY();
         for (int i = 0; i < slot.getLength(); i++) {
@@ -200,7 +201,7 @@ public class CrosswordsSolver {
         }
     }
 
-    private void removeWord(Slot slot) {
+    private void unassignWord(WordSlot slot) {
         int x = slot.getX();
         int y = slot.getY();
         for (int i = 0; i < slot.getLength(); i++) {
@@ -212,17 +213,16 @@ public class CrosswordsSolver {
         }
     }
 
-    private boolean conflictAt(int row, int col, Slot currentSlot) {
+    private boolean conflictAt(int row, int col, WordSlot currentSlot) {
         String key = row + "," + col;
-        List<Slot> occupyingSlots = positionToSlots.getOrDefault(key, new ArrayList<>());
-        for (Slot slot : occupyingSlots) {
+        List<WordSlot> occupyingSlots = positionToSlots.getOrDefault(key, new ArrayList<>());
+        for (WordSlot slot : occupyingSlots) {
             if (slot != currentSlot && slot.getWord() != null) {
                 return true;
             }
         }
         return false;
     }
-
 
     private void printGrid() {
         for (char[] linha : grid) {
