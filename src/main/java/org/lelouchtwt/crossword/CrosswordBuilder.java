@@ -1,153 +1,128 @@
+// CrosswordBuilder.java
 package org.lelouchtwt.crossword;
 
+import me.tongfei.progressbar.ProgressBar;
+import org.lelouchtwt.crossword.core.DomainManager;
+import org.lelouchtwt.crossword.core.SlotIdentifier;
+import org.lelouchtwt.crossword.heuristic.LCVHeuristicImpl;
+import org.lelouchtwt.crossword.heuristic.MRVHeuristicImpl;
 import org.lelouchtwt.crossword.model.WordSlot;
-import org.lelouchtwt.crossword.util.FileUtils;
-import org.lelouchtwt.crossword.util.ImageUtils;
+import org.lelouchtwt.crossword.util.*;
 
 import java.util.*;
-import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Logger;
 
 public class CrosswordBuilder {
-    private final boolean DEBUG = false;
-    private final int xSize;
-    private final int ySize;
+    private static final Logger logger = Logger.getLogger(CrosswordBuilder.class.getName());
+
+    private final int width;
+    private final int height;
     private final char[][] grid;
-    private final List<WordSlot> slots = new ArrayList<>();
+    private final List<WordSlot> slots;
     private final List<String> dictionary;
-    private final Map<WordSlot, List<String>> domains = new HashMap<>();
-    private final Set<String> usedWords = new HashSet<>();
+    private final Map<WordSlot, List<String>> domains;
+    private final BitSet usedWords = new BitSet();
+    private final Map<String, Integer> wordIndex = new HashMap<>();
     private final Map<String, List<WordSlot>> positionToSlots = new HashMap<>();
+    private final Map<String, Integer> constraintCache = new ConcurrentHashMap<>();
     private int steps = 0;
+    private ProgressBar pb;
 
     public CrosswordBuilder(List<String> input, List<String> words) {
-        this.ySize = input.size();
-        this.xSize = input.getFirst().length();
-        this.grid = new char[ySize][xSize];
+        this.height = input.size();
+        this.width = input.get(0).length();
+        this.grid = new char[height][width];
         this.dictionary = words;
+
+        for (int i = 0; i < dictionary.size(); i++) {
+            wordIndex.put(dictionary.get(i), i);
+        }
+
         setGrid(input);
-        identifyWordSlots();
+        SlotIdentifier slotIdentifier = new SlotIdentifier(grid, width, height, positionToSlots);
+        this.slots = slotIdentifier.identifySlots();
+        DomainManager domainManager = new DomainManager(dictionary);
+        this.domains = domainManager.initializeDomains(slots);
+        new MRVHeuristicImpl(domains).apply(slots);
     }
 
     public void build() {
-        long startTime = System.currentTimeMillis();
-        initDomains();
-        boolean success = backtrack(0);
-        if (success) {
-            System.out.println("Solução encontrada!");
-            printGrid();
-            FileUtils.saveGridToFile("./crossword.txt", grid);
-            long stopTime = System.currentTimeMillis();
-            ImageUtils.saveGridAsImage("./crossword.jpg", grid, xSize, ySize, stopTime - startTime);
-        } else {
-            System.out.println("Nenhuma solução encontrada.");
-        }
-        System.out.println("Passos (recursão): " + steps);
+        LoggingUtils.configureLogger(logger, Boolean.getBoolean("debug"));
+        pb = new ProgressBar("Building Crossword", slots.size());
+        TimerUtils.time("Crossword building", () -> {
+            pb.setExtraMessage("Building...");
+            boolean success = backtrack(0);
+            if (success) {
+                pb.close();
+                logger.info("✅ Solution found!");
+                GridPrinter.print(grid);
+                FileUtils.saveGridToFile("./crossword.txt", grid);
+                ImageUtils.saveGridAsImage("./crossword.jpg", grid, width, height, 0);
+            } else {
+                logger.warning("❌ No solution found.");
+            }
+            logger.info("Recursive steps: " + steps);
+        }, logger);
     }
 
     private void setGrid(List<String> input) {
-        for (int i = 0; i < ySize; i++) {
+        for (int i = 0; i < height; i++) {
             grid[i] = input.get(i).toCharArray();
         }
     }
 
-    private void identifyWordSlots() {
-        setHorizontalSlots();
-        setVerticalSlots();
-    }
-
-    private void setHorizontalSlots() {
-        for (int y = 0; y < ySize; y++) {
-            int x = 0;
-            while (x < xSize) {
-                if (grid[y][x] == '.') {
-                    x++;
-                    continue;
-                }
-                int start = x;
-                while (x < xSize && grid[y][x] != '.') x++;
-                int length = x - start;
-                if (length > 1) {
-                    WordSlot slot = new WordSlot(start, y, length, true);
-                    slots.add(slot);
-                    registerSlotPositions(slot);
-                }
-            }
-        }
-    }
-
-    private void setVerticalSlots() {
-        for (int x = 0; x < xSize; x++) {
-            int y = 0;
-            while (y < ySize) {
-                if (grid[y][x] == '.') {
-                    y++;
-                    continue;
-                }
-                int start = y;
-                while (y < ySize && grid[y][x] != '.') y++;
-                int length = y - start;
-                if (length > 1) {
-                    WordSlot slot = new WordSlot(x, start, length, false);
-                    slots.add(slot);
-                    registerSlotPositions(slot);
-                }
-            }
-        }
-    }
-
-    private void registerSlotPositions(WordSlot slot) {
-        for (int i = 0; i < slot.getLength(); i++) {
-            int x = slot.isHorizontal() ? slot.getX() + i : slot.getX();
-            int y = slot.isHorizontal() ? slot.getY() : slot.getY() + i;
-            String key = y + "," + x;
-            positionToSlots.computeIfAbsent(key, k -> new ArrayList<>()).add(slot);
-        }
-    }
-
-    private void initDomains() {
-        Map<Integer, List<String>> domainCache = new HashMap<>();
-        for (WordSlot slot : slots) {
-            int length = slot.getLength();
-            domainCache.computeIfAbsent(length, len ->
-                    dictionary.stream()
-                            .filter(word -> word.length() == len)
-                            .toList()
-            );
-            domains.put(slot, new ArrayList<>(domainCache.get(length)));
-        }
-        slots.sort(Comparator.comparingInt(s -> domains.get(s).size()));
-    }
-
     private boolean backtrack(int index) {
         steps++;
-        double progress = (index * 100.0) / slots.size();
-        System.out.printf("Progresso: %.1f%% (%d/%d slots preenchidos) %n", progress, index, slots.size());
 
-        if (index == slots.size())
-            return true;
+        pb.step();
+
+        if (index == slots.size()) return true;
 
         WordSlot slot = slots.get(index);
-        List<String> originalDomain = domains.get(slot);
+        List<String> domain = new ArrayList<>(domains.get(slot));
 
-        for (String word : originalDomain) {
-            if (!usedWords.contains(word) && isValidPlacement(slot, word)) {
-                if (DEBUG) System.out.printf("Tentando colocar '%s' no slot %s %n", word, slot);
+        if (domain.size() <= 10) {
+            new LCVHeuristicImpl(slot, this::countConstraints).apply(domain);
+        }
+
+        for (String word : domain) {
+            int idx = wordIndex.get(word);
+            if (!usedWords.get(idx) && isValidPlacement(slot, word)) {
                 assignWord(slot, word);
                 slot.setWord(word);
-                usedWords.add(word);
+                usedWords.set(idx);
 
                 Map<WordSlot, List<String>> modifiedDomains = new HashMap<>();
-                if (forwardCheck(index + 1, modifiedDomains) && backtrack(index + 1))
-                    return true;
+                boolean success = forwardCheck(index + 1, modifiedDomains) && backtrack(index + 1);
+                if (success) return true;
 
                 domains.putAll(modifiedDomains);
                 unassignWord(slot);
-                if (DEBUG) System.out.printf("Removendo '%s' do slot %s %n", word, slot);
                 slot.setWord(null);
-                usedWords.remove(word);
+                usedWords.clear(idx);
             }
         }
         return false;
+    }
+
+    private int countConstraints(WordSlot slot, String word) {
+        String key = slot.hashCode() + ":" + word;
+        return constraintCache.computeIfAbsent(key, k -> {
+            assignWord(slot, word);
+            int conflicts = slots.parallelStream()
+                    .filter(other -> other.getWord() == null && other != slot)
+                    .mapToInt(other -> {
+                        List<String> domain = domains.get(other);
+                        return (int) domain.stream()
+                                .filter(candidate -> !isValidPlacement(other, candidate))
+                                .count();
+                    })
+                    .sum();
+
+            unassignWord(slot);
+            return conflicts;
+        });
     }
 
     private boolean forwardCheck(int startIndex, Map<WordSlot, List<String>> modifiedDomains) {
@@ -155,26 +130,18 @@ public class CrosswordBuilder {
             WordSlot slot = slots.get(i);
             List<String> currentDomain = domains.get(slot);
 
-            List<String> filtered = new ArrayList<>();
-            for (String word : currentDomain) {
-                if (isValidPlacement(slot, word)) {
-                    filtered.add(word);
-                }
-            }
+            List<String> filtered = currentDomain.size() > 100
+                    ? currentDomain.parallelStream().filter(word -> isValidPlacement(slot, word)).toList()
+                    : currentDomain.stream().filter(word -> isValidPlacement(slot, word)).toList();
 
             if (filtered.isEmpty()) {
-                if (DEBUG) System.out.printf("[FC] Slot %s ficou com domínio vazio! %n", slot);
                 return false;
             } else if (filtered.size() < currentDomain.size()) {
-                if (DEBUG) System.out.printf("[FC] Slot %s: domínio reduzido de %d para %d %n", slot, currentDomain.size(), filtered.size());
-                modifiedDomains.put(slot, new ArrayList<>(currentDomain));
+                modifiedDomains.put(slot, currentDomain);
+                domains.put(slot, filtered);
             }
-
-            domains.put(slot, filtered);
         }
-        slots.subList(startIndex, slots.size()).sort(
-                Comparator.comparingInt(s -> domains.get(s).size())
-        );
+        new MRVHeuristicImpl(domains).apply(slots.subList(startIndex, slots.size()));
         return true;
     }
 
@@ -183,8 +150,7 @@ public class CrosswordBuilder {
         int y = slot.getY();
         for (int i = 0; i < slot.getLength(); i++) {
             char current = slot.isHorizontal() ? grid[y][x + i] : grid[y + i][x];
-            if (current != '?' && current != word.charAt(i))
-                return false;
+            if (current != Constants.EMPTY && current != word.charAt(i)) return false;
         }
         return true;
     }
@@ -193,11 +159,9 @@ public class CrosswordBuilder {
         int x = slot.getX();
         int y = slot.getY();
         for (int i = 0; i < slot.getLength(); i++) {
-            if (slot.isHorizontal()) {
-                grid[y][x + i] = word.charAt(i);
-            } else {
-                grid[y + i][x] = word.charAt(i);
-            }
+            int row = slot.isHorizontal() ? y : y + i;
+            int col = slot.isHorizontal() ? x + i : x;
+            grid[row][col] = word.charAt(i);
         }
     }
 
@@ -208,7 +172,7 @@ public class CrosswordBuilder {
             int row = slot.isHorizontal() ? y : y + i;
             int col = slot.isHorizontal() ? x + i : x;
             if (!conflictAt(row, col, slot)) {
-                grid[row][col] = '?';
+                grid[row][col] = Constants.EMPTY;
             }
         }
     }
@@ -222,14 +186,5 @@ public class CrosswordBuilder {
             }
         }
         return false;
-    }
-
-    private void printGrid() {
-        for (char[] linha : grid) {
-            for (char c : linha) {
-                System.out.print(c + " ");
-            }
-            System.out.println();
-        }
     }
 }

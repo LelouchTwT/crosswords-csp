@@ -5,8 +5,13 @@ import java.util.List;
 
 public class CrosswordRunner {
     public static void main(String[] args) {
-        List<String> gridLines = FileUtils.readLines("/Users/joaopedroantoniazitonello/Documents/testes/grid-25x25-88W-400L-225B.txt");
-        List<String> words = FileUtils.readLines("/Users/joaopedroantoniazitonello/Documents/lista_palavras.txt");
+        if(args.length != 2){
+            System.out.println("Argumentos invalidos");
+            return;
+        }
+
+        List<String> gridLines = FileUtils.readLines(args[0]);
+        List<String> words = FileUtils.readLines(args[1]);
 
         CrosswordBuilder builder = new CrosswordBuilder(gridLines, words);
         builder.build();

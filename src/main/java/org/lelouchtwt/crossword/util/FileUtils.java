@@ -6,33 +6,39 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.logging.Logger;
 
 public class FileUtils {
+    private static final Logger logger = Logger.getLogger(FileUtils.class.getName());
+
+    private FileUtils() {
+        throw new IllegalStateException("Utility class");
+    }
+
     public static List<String> readLines(String path) {
         List<String> lines = new ArrayList<>();
-        try (BufferedReader br = new BufferedReader(new FileReader(path))) {
-            String line;
-            while ((line = br.readLine()) != null) {
-                lines.add(line.trim());
+        TimerUtils.time("Reading lines from: " + path, () -> {
+            try (BufferedReader br = new BufferedReader(new FileReader(path))) {
+                String line;
+                while ((line = br.readLine()) != null) {
+                    lines.add(line.trim());
+                }
+            } catch (IOException e) {
+                logger.severe("Error reading file: " + e.getMessage());
             }
-        } catch (IOException e) {
-            System.err.println("Erro ao ler arquivo: " + path);
-            e.printStackTrace();
-        }
+        }, logger);
         return lines;
     }
 
     public static void saveGridToFile(String path, char[][] grid) {
-        try (PrintWriter writer = new PrintWriter(path)) {
-            for (char[] row : grid) {
-                for (char c : row) {
-                    writer.print(c);
+        TimerUtils.time("Saving grid to file: " + path, () -> {
+            try (PrintWriter writer = new PrintWriter(path)) {
+                for (char[] row : grid) {
+                    writer.println(new String(row));
                 }
-                writer.println();
+            } catch (IOException e) {
+                logger.severe("Error saving grid: " + e.getMessage());
             }
-        } catch (IOException e) {
-            System.err.println("Erro ao salvar grid no arquivo: " + path);
-            e.printStackTrace();
-        }
+        }, logger);
     }
 }
