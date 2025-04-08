@@ -1,4 +1,3 @@
-// CrosswordBuilder.java
 package org.lelouchtwt.crossword;
 
 import me.tongfei.progressbar.ProgressBar;
@@ -58,7 +57,7 @@ public class CrosswordBuilder {
                 logger.info("✅ Solution found!");
                 GridPrinter.print(grid);
                 FileUtils.saveGridToFile("./crossword.txt", grid);
-                ImageUtils.saveGridAsImage("./crossword.jpg", grid, width, height, 0);
+                //ImageUtils.saveGridAsImage("./crossword.jpg", grid, width, height, 0);
             } else {
                 logger.warning("❌ No solution found.");
             }
