@@ -7,7 +7,6 @@ import org.lelouchtwt.crossword.model.WordSlot;
 import org.lelouchtwt.crossword.util.*;
 
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 
 public class CrosswordBuilder {
