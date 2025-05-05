@@ -3,8 +3,6 @@ package org.lelouchtwt.crossword;
 import me.tongfei.progressbar.ProgressBar;
 import org.lelouchtwt.crossword.core.DomainManager;
 import org.lelouchtwt.crossword.core.SlotIdentifier;
-import org.lelouchtwt.crossword.heuristic.LCVHeuristicImpl;
-import org.lelouchtwt.crossword.heuristic.MRVHeuristicImpl;
 import org.lelouchtwt.crossword.model.WordSlot;
 import org.lelouchtwt.crossword.util.*;
 
@@ -43,7 +41,7 @@ public class CrosswordBuilder {
         this.slots = slotIdentifier.identifySlots();
         DomainManager domainManager = new DomainManager(dictionary);
         this.domains = domainManager.initializeDomains(slots);
-        new MRVHeuristicImpl(domains).apply(slots);
+        applyMRVHeuristic(slots);
     }
 
     public void build() {
@@ -57,7 +55,6 @@ public class CrosswordBuilder {
                 logger.info("✅ Solution found!");
                 GridPrinter.print(grid);
                 FileUtils.saveGridToFile("./crossword.txt", grid);
-                //ImageUtils.saveGridAsImage("./crossword.jpg", grid, width, height, 0);
             } else {
                 logger.warning("❌ No solution found.");
             }
@@ -81,10 +78,6 @@ public class CrosswordBuilder {
         WordSlot slot = slots.get(index);
         List<String> domain = new ArrayList<>(domains.get(slot));
 
-        if (domain.size() <= 10) {
-            new LCVHeuristicImpl(slot, this::countConstraints).apply(domain);
-        }
-
         for (String word : domain) {
             int idx = wordIndex.get(word);
             if (!usedWords.get(idx) && isValidPlacement(slot, word)) {
@@ -105,33 +98,13 @@ public class CrosswordBuilder {
         return false;
     }
 
-    private int countConstraints(WordSlot slot, String word) {
-        String key = slot.hashCode() + ":" + word;
-        return constraintCache.computeIfAbsent(key, k -> {
-            assignWord(slot, word);
-            int conflicts = slots.parallelStream()
-                    .filter(other -> other.getWord() == null && other != slot)
-                    .mapToInt(other -> {
-                        List<String> domain = domains.get(other);
-                        return (int) domain.stream()
-                                .filter(candidate -> !isValidPlacement(other, candidate))
-                                .count();
-                    })
-                    .sum();
-
-            unassignWord(slot);
-            return conflicts;
-        });
-    }
 
     private boolean forwardCheck(int startIndex, Map<WordSlot, List<String>> modifiedDomains) {
         for (int i = startIndex; i < slots.size(); i++) {
             WordSlot slot = slots.get(i);
             List<String> currentDomain = domains.get(slot);
 
-            List<String> filtered = currentDomain.size() > 100
-                    ? currentDomain.parallelStream().filter(word -> isValidPlacement(slot, word)).toList()
-                    : currentDomain.stream().filter(word -> isValidPlacement(slot, word)).toList();
+            List<String> filtered = currentDomain.parallelStream().filter(word -> isValidPlacement(slot, word)).toList();
 
             if (filtered.isEmpty()) {
                 return false;
@@ -140,7 +113,7 @@ public class CrosswordBuilder {
                 domains.put(slot, filtered);
             }
         }
-        new MRVHeuristicImpl(domains).apply(slots.subList(startIndex, slots.size()));
+        applyMRVHeuristic(slots.subList(startIndex, slots.size()));
         return true;
     }
 
@@ -185,5 +158,9 @@ public class CrosswordBuilder {
             }
         }
         return false;
+    }
+
+    private void applyMRVHeuristic(List<WordSlot> slotsToSort) {
+        slotsToSort.sort(Comparator.comparingInt(slot -> domains.get(slot).size()));
     }
 }
