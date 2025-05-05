@@ -22,7 +22,6 @@ public class CrosswordBuilder {
     private final BitSet usedWords = new BitSet();
     private final Map<String, Integer> wordIndex = new HashMap<>();
     private final Map<String, List<WordSlot>> positionToSlots = new HashMap<>();
-    private final Map<String, Integer> constraintCache = new ConcurrentHashMap<>();
     private int steps = 0;
     private ProgressBar pb;
 
